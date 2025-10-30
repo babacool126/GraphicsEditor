@@ -161,6 +161,7 @@ class FigureGroup extends Figure {
     
     @Override
     void draw(Graphics g) {
+        // Draw all children
         for (Figure child : children) {
             child.draw(g);
         }
@@ -191,6 +192,7 @@ class FigureGroup extends Figure {
     
     @Override
     void move(int dx, int dy) {
+        // Move all children
         for (Figure child : children) {
             child.move(dx, dy);
         }
@@ -343,6 +345,7 @@ class ResizeFigureCommand implements Command {
     }
 }
 
+// NEW: Group Command
 class GroupCommand implements Command {
     private ArrayList<Figure> figures;
     private ArrayList<Figure> figuresToGroup;
@@ -393,6 +396,7 @@ class GroupCommand implements Command {
     }
 }
 
+// NEW: Ungroup Command
 class UngroupCommand implements Command {
     private ArrayList<Figure> figures;
     private FigureGroup group;
@@ -630,7 +634,9 @@ class DrawingPanel extends JPanel {
                         currentFigure = new EllipseFigure(startX, startY, 1, 1);
                     }
                 } else if (mode.equals("select")) {
-                    selectFigureAt(e.getX(), e.getY());
+                    // Select figure - support Ctrl+Click for multi-select
+                    boolean addToSelection = e.isControlDown();
+                    selectFigureAt(e.getX(), e.getY(), addToSelection);
                 } else if (mode.equals("move")) {
                     selectedFigure = findFigureAt(e.getX(), e.getY());
                     if (selectedFigure != null) {
@@ -749,13 +755,24 @@ class DrawingPanel extends JPanel {
         return selected;
     }
     
-    void selectFigureAt(int x, int y) {
-        for (Figure f : figures) {
-            f.selected = false;
+    void selectFigureAt(int x, int y, boolean addToSelection) {
+        if (!addToSelection) {
+            // Clear all selections if not adding
+            for (Figure f : figures) {
+                f.selected = false;
+            }
         }
+        
+        // Find and toggle/select the clicked figure
         for (int i = figures.size() - 1; i >= 0; i--) {
             if (figures.get(i).contains(x, y)) {
-                figures.get(i).selected = true;
+                if (addToSelection) {
+                    // Toggle selection if Ctrl is held
+                    figures.get(i).selected = !figures.get(i).selected;
+                } else {
+                    // Just select it
+                    figures.get(i).selected = true;
+                }
                 break;
             }
         }
