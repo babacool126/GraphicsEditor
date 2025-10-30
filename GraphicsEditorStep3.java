@@ -6,7 +6,7 @@ import java.util.Stack;
 import javax.swing.*;
 import javax.swing.filechooser.FileNameExtensionFilter;
 
-// ==================== FIGURE CLASSES ====================
+// ==================== FIGURE CLASSES (WITH COMPOSITE PATTERN) ====================
 
 abstract class Figure {
     int left, top, width, height;
@@ -100,7 +100,165 @@ class EllipseFigure extends Figure {
     }
 }
 
-// ==================== COMMAND PATTERN ====================
+// ==================== GROUP (COMPOSITE PATTERN) ====================
+
+/**
+ * FigureGroup - Composite pattern implementation
+ * A group can contain figures and other groups (unlimited nesting)
+ */
+class FigureGroup extends Figure {
+    private ArrayList<Figure> children = new ArrayList<>();
+    
+    FigureGroup() {
+        super(0, 0, 0, 0);
+        updateBounds();
+    }
+    
+    void add(Figure figure) {
+        children.add(figure);
+        updateBounds();
+    }
+    
+    void remove(Figure figure) {
+        children.remove(figure);
+        updateBounds();
+    }
+    
+    ArrayList<Figure> getChildren() {
+        return new ArrayList<>(children);
+    }
+    
+    int getChildCount() {
+        return children.size();
+    }
+    
+    /**
+     * Update bounds to encompass all children
+     */
+    private void updateBounds() {
+        if (children.isEmpty()) {
+            left = top = width = height = 0;
+            return;
+        }
+        
+        int minLeft = Integer.MAX_VALUE;
+        int minTop = Integer.MAX_VALUE;
+        int maxRight = Integer.MIN_VALUE;
+        int maxBottom = Integer.MIN_VALUE;
+        
+        for (Figure child : children) {
+            minLeft = Math.min(minLeft, child.left);
+            minTop = Math.min(minTop, child.top);
+            maxRight = Math.max(maxRight, child.left + child.width);
+            maxBottom = Math.max(maxBottom, child.top + child.height);
+        }
+        
+        left = minLeft;
+        top = minTop;
+        width = maxRight - minLeft;
+        height = maxBottom - minTop;
+    }
+    
+    @Override
+    void draw(Graphics g) {
+        // Draw all children
+        for (Figure child : children) {
+            child.draw(g);
+        }
+        
+        // If selected, draw selection box around entire group
+        if (selected) {
+            Graphics2D g2 = (Graphics2D) g;
+            g2.setColor(Color.BLUE);
+            Stroke oldStroke = g2.getStroke();
+            float[] dashPattern = {5, 5};
+            g2.setStroke(new BasicStroke(2, BasicStroke.CAP_BUTT,
+                    BasicStroke.JOIN_MITER, 10, dashPattern, 0));
+            g2.drawRect(left, top, width, height);
+            g2.setStroke(oldStroke);
+        }
+    }
+    
+    @Override
+    boolean contains(int x, int y) {
+        // Check if any child contains the point
+        for (Figure child : children) {
+            if (child.contains(x, y)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    @Override
+    void move(int dx, int dy) {
+        // Move all children
+        for (Figure child : children) {
+            child.move(dx, dy);
+        }
+        updateBounds();
+    }
+    
+    @Override
+    void resize(int newWidth, int newHeight) {
+        if (width == 0 || height == 0) return;
+        
+        double scaleX = (double) newWidth / width;
+        double scaleY = (double) newHeight / height;
+        
+        int oldLeft = left;
+        int oldTop = top;
+        
+        // Resize each child proportionally
+        for (Figure child : children) {
+            int relativeLeft = child.left - oldLeft;
+            int relativeTop = child.top - oldTop;
+            
+            int newLeft = oldLeft + (int) Math.round(relativeLeft * scaleX);
+            int newTop = oldTop + (int) Math.round(relativeTop * scaleY);
+            int childNewWidth = (int) Math.round(child.width * scaleX);
+            int childNewHeight = (int) Math.round(child.height * scaleY);
+            
+            child.left = newLeft;
+            child.top = newTop;
+            child.resize(childNewWidth, childNewHeight);
+        }
+        
+        updateBounds();
+    }
+    
+    @Override
+    String toFileFormat(int indent) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(getIndent(indent)).append("group ").append(children.size()).append("\n");
+        
+        for (Figure child : children) {
+            sb.append(child.toFileFormat(indent + 1)).append("\n");
+        }
+        
+        // Remove last newline
+        if (sb.length() > 0 && sb.charAt(sb.length() - 1) == '\n') {
+            sb.setLength(sb.length() - 1);
+        }
+        
+        return sb.toString();
+    }
+    
+    @Override
+    public Figure clone() {
+        FigureGroup clone = new FigureGroup();
+        for (Figure child : children) {
+            clone.add(child.clone());
+        }
+        return clone;
+    }
+    
+    private String getIndent(int level) {
+        return " ".repeat(level);
+    }
+}
+
+// ==================== COMMAND PATTERN (EXTENDED FOR GROUPS) ====================
 
 interface Command {
     void execute();
@@ -184,6 +342,102 @@ class ResizeFigureCommand implements Command {
     
     public void undo() {
         figure.resize(oldWidth, oldHeight);
+    }
+}
+
+// NEW: Group Command
+class GroupCommand implements Command {
+    private ArrayList<Figure> figures;
+    private ArrayList<Figure> figuresToGroup;
+    private FigureGroup createdGroup;
+    private int[] indices;
+    
+    GroupCommand(ArrayList<Figure> figures, ArrayList<Figure> figuresToGroup) {
+        this.figures = figures;
+        this.figuresToGroup = new ArrayList<>(figuresToGroup);
+        this.indices = new int[figuresToGroup.size()];
+    }
+    
+    public void execute() {
+        // Store indices
+        for (int i = 0; i < figuresToGroup.size(); i++) {
+            indices[i] = figures.indexOf(figuresToGroup.get(i));
+        }
+        
+        // Create group
+        createdGroup = new FigureGroup();
+        for (Figure fig : figuresToGroup) {
+            createdGroup.add(fig);
+            figures.remove(fig);
+        }
+        
+        // Add group at position of first figure
+        int insertPos = indices[0];
+        if (insertPos >= 0 && insertPos <= figures.size()) {
+            figures.add(insertPos, createdGroup);
+        } else {
+            figures.add(createdGroup);
+        }
+    }
+    
+    public void undo() {
+        // Remove group
+        figures.remove(createdGroup);
+        
+        // Add back original figures
+        for (int i = 0; i < figuresToGroup.size(); i++) {
+            int idx = indices[i];
+            if (idx >= 0 && idx <= figures.size()) {
+                figures.add(idx, figuresToGroup.get(i));
+            } else {
+                figures.add(figuresToGroup.get(i));
+            }
+        }
+    }
+}
+
+// NEW: Ungroup Command
+class UngroupCommand implements Command {
+    private ArrayList<Figure> figures;
+    private FigureGroup group;
+    private ArrayList<Figure> extractedFigures;
+    private int groupIndex;
+    
+    UngroupCommand(ArrayList<Figure> figures, FigureGroup group) {
+        this.figures = figures;
+        this.group = group;
+        this.extractedFigures = new ArrayList<>();
+    }
+    
+    public void execute() {
+        groupIndex = figures.indexOf(group);
+        extractedFigures = group.getChildren();
+        
+        figures.remove(group);
+        
+        // Add extracted figures
+        for (int i = 0; i < extractedFigures.size(); i++) {
+            int pos = groupIndex + i;
+            if (pos >= 0 && pos <= figures.size()) {
+                figures.add(pos, extractedFigures.get(i));
+            } else {
+                figures.add(extractedFigures.get(i));
+            }
+        }
+    }
+    
+    public void undo() {
+        // Remove extracted figures
+        for (Figure fig : extractedFigures) {
+            figures.remove(fig);
+        }
+        
+        // Add back group
+        if (groupIndex >= 0 && groupIndex <= figures.size()) {
+            figures.add(groupIndex, group);
+        } else {
+            figures.add(group);
+        }
     }
 }
 
@@ -271,7 +525,7 @@ class CommandManager {
     }
 }
 
-// ==================== FILE I/O ====================
+// ==================== FILE I/O (EXTENDED FOR GROUPS) ====================
 
 class FileIO {
     static void save(ArrayList<Figure> figures, File file) throws IOException {
@@ -289,38 +543,63 @@ class FileIO {
         try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
             String line = reader.readLine();
             if (line != null && line.trim().startsWith("group")) {
-                String[] parts = line.trim().split("\\s+");
-                int count = Integer.parseInt(parts[1]);
-                for (int i = 0; i < count; i++) {
-                    line = reader.readLine();
-                    if (line != null) {
-                        Figure fig = parseFigure(line.trim());
-                        if (fig != null) {
-                            figures.add(fig);
-                        }
-                    }
-                }
+                FigureGroup rootGroup = parseGroup(reader, line.trim(), 0);
+                figures.addAll(rootGroup.getChildren());
             }
         }
         return figures;
     }
     
-    private static Figure parseFigure(String line) {
+    private static FigureGroup parseGroup(BufferedReader reader, String groupLine, int expectedIndent) throws IOException {
+        String[] parts = groupLine.trim().split("\\s+");
+        int count = Integer.parseInt(parts[1]);
+        
+        FigureGroup group = new FigureGroup();
+        
+        for (int i = 0; i < count; i++) {
+            String line = reader.readLine();
+            if (line == null) break;
+            
+            int indent = countIndent(line);
+            String trimmed = line.trim();
+            
+            Figure fig = parseFigure(reader, trimmed, indent);
+            if (fig != null) {
+                group.add(fig);
+            }
+        }
+        
+        return group;
+    }
+    
+    private static Figure parseFigure(BufferedReader reader, String line, int indent) throws IOException {
         String[] parts = line.split("\\s+");
-        if (parts.length < 5) return null;
         
-        String type = parts[0];
-        int left = Integer.parseInt(parts[1]);
-        int top = Integer.parseInt(parts[2]);
-        int width = Integer.parseInt(parts[3]);
-        int height = Integer.parseInt(parts[4]);
-        
-        if (type.equals("rectangle")) {
-            return new RectangleFigure(left, top, width, height);
-        } else if (type.equals("ellipse")) {
-            return new EllipseFigure(left, top, width, height);
+        if (parts[0].equals("group")) {
+            return parseGroup(reader, line, indent);
+        } else if (parts.length >= 5) {
+            String type = parts[0];
+            int left = Integer.parseInt(parts[1]);
+            int top = Integer.parseInt(parts[2]);
+            int width = Integer.parseInt(parts[3]);
+            int height = Integer.parseInt(parts[4]);
+            
+            if (type.equals("rectangle")) {
+                return new RectangleFigure(left, top, width, height);
+            } else if (type.equals("ellipse")) {
+                return new EllipseFigure(left, top, width, height);
+            }
         }
         return null;
+    }
+    
+    private static int countIndent(String line) {
+        int count = 0;
+        for (char c : line.toCharArray()) {
+            if (c == ' ') count++;
+            else break;
+        }
+        return count;
     }
 }
 
@@ -335,10 +614,9 @@ class DrawingPanel extends JPanel {
     Figure currentFigure;
     Figure selectedFigure;
     
-    // FIXED: Track original position for move/resize
     int originalX, originalY;
     int originalWidth, originalHeight;
-    int totalDx, totalDy;  // Track total movement for command
+    int totalDx, totalDy;
     
     DrawingPanel(CommandManager commandManager) {
         this.commandManager = commandManager;
@@ -350,17 +628,16 @@ class DrawingPanel extends JPanel {
                 startY = e.getY();
                 
                 if (mode.equals("rectangle") || mode.equals("ellipse")) {
-                    // Create new figure
                     if (mode.equals("rectangle")) {
                         currentFigure = new RectangleFigure(startX, startY, 1, 1);
                     } else {
                         currentFigure = new EllipseFigure(startX, startY, 1, 1);
                     }
                 } else if (mode.equals("select")) {
-                    // Select figure
-                    selectFigureAt(e.getX(), e.getY());
+                    // Select figure - support Ctrl+Click for multi-select
+                    boolean addToSelection = e.isControlDown();
+                    selectFigureAt(e.getX(), e.getY(), addToSelection);
                 } else if (mode.equals("move")) {
-                    // Find figure to move
                     selectedFigure = findFigureAt(e.getX(), e.getY());
                     if (selectedFigure != null) {
                         originalX = e.getX();
@@ -369,7 +646,6 @@ class DrawingPanel extends JPanel {
                         totalDy = 0;
                     }
                 } else if (mode.equals("resize")) {
-                    // Find figure to resize
                     selectedFigure = findFigureAt(e.getX(), e.getY());
                     if (selectedFigure != null) {
                         originalWidth = selectedFigure.width;
@@ -380,7 +656,6 @@ class DrawingPanel extends JPanel {
             
             public void mouseReleased(MouseEvent e) {
                 if (currentFigure != null && (mode.equals("rectangle") || mode.equals("ellipse"))) {
-                    // Add figure via command
                     if (currentFigure.width > 5 && currentFigure.height > 5) {
                         commandManager.executeCommand(new AddFigureCommand(figures, currentFigure));
                     }
@@ -418,11 +693,9 @@ class DrawingPanel extends JPanel {
                     int dx = currentX - originalX;
                     int dy = currentY - originalY;
                     
-                    // Move figure to new position based on total delta
                     selectedFigure.left = selectedFigure.left - totalDx + dx;
                     selectedFigure.top = selectedFigure.top - totalDy + dy;
                     
-                    // Update total delta
                     totalDx = dx;
                     totalDy = dy;
                     
@@ -439,7 +712,6 @@ class DrawingPanel extends JPanel {
     
     void setMode(String mode) {
         this.mode = mode;
-        // Deselect all when changing mode
         for (Figure f : figures) {
             f.selected = false;
         }
@@ -451,15 +723,56 @@ class DrawingPanel extends JPanel {
         repaint();
     }
     
-    void selectFigureAt(int x, int y) {
-        // Deselect all first
-        for (Figure f : figures) {
-            f.selected = false;
+    void groupSelected() {
+        ArrayList<Figure> selected = getSelectedFigures();
+        if (selected.size() >= 2) {
+            commandManager.executeCommand(new GroupCommand(figures, selected));
+            repaint();
+        } else {
+            JOptionPane.showMessageDialog(this, "Select at least 2 figures to group", 
+                "Group", JOptionPane.INFORMATION_MESSAGE);
         }
-        // Select the top-most figure at position
+    }
+    
+    void ungroupSelected() {
+        ArrayList<Figure> selected = getSelectedFigures();
+        if (selected.size() == 1 && selected.get(0) instanceof FigureGroup) {
+            commandManager.executeCommand(new UngroupCommand(figures, (FigureGroup) selected.get(0)));
+            repaint();
+        } else {
+            JOptionPane.showMessageDialog(this, "Select exactly one group to ungroup", 
+                "Ungroup", JOptionPane.INFORMATION_MESSAGE);
+        }
+    }
+    
+    ArrayList<Figure> getSelectedFigures() {
+        ArrayList<Figure> selected = new ArrayList<>();
+        for (Figure f : figures) {
+            if (f.selected) {
+                selected.add(f);
+            }
+        }
+        return selected;
+    }
+    
+    void selectFigureAt(int x, int y, boolean addToSelection) {
+        if (!addToSelection) {
+            // Clear all selections if not adding
+            for (Figure f : figures) {
+                f.selected = false;
+            }
+        }
+        
+        // Find and toggle/select the clicked figure
         for (int i = figures.size() - 1; i >= 0; i--) {
             if (figures.get(i).contains(x, y)) {
-                figures.get(i).selected = true;
+                if (addToSelection) {
+                    // Toggle selection if Ctrl is held
+                    figures.get(i).selected = !figures.get(i).selected;
+                } else {
+                    // Just select it
+                    figures.get(i).selected = true;
+                }
                 break;
             }
         }
@@ -488,13 +801,13 @@ class DrawingPanel extends JPanel {
 
 // ==================== MAIN APPLICATION ====================
 
-public class GraphicsEditorStep2 extends JFrame {
+public class GraphicsEditorStep3 extends JFrame {
     DrawingPanel canvas;
     CommandManager commandManager;
     JButton undoBtn, redoBtn;
     
-    GraphicsEditorStep2() {
-        setTitle("Graphics Editor - Step 2 (Command Pattern + File I/O)");
+    GraphicsEditorStep3() {
+        setTitle("Graphics Editor - Step 3 (Composite Pattern)");
         setSize(800, 600);
         setDefaultCloseOperation(EXIT_ON_CLOSE);
         
@@ -524,6 +837,23 @@ public class GraphicsEditorStep2 extends JFrame {
         JButton resizeBtn = new JButton("Resize");
         resizeBtn.addActionListener(e -> canvas.setMode("resize"));
         toolbar.add(resizeBtn);
+        
+        toolbar.add(new JSeparator(SwingConstants.VERTICAL));
+        
+        // NEW: Group/Ungroup buttons
+        JButton groupBtn = new JButton("Group");
+        groupBtn.addActionListener(e -> {
+            canvas.groupSelected();
+            updateUndoRedoButtons();
+        });
+        toolbar.add(groupBtn);
+        
+        JButton ungroupBtn = new JButton("Ungroup");
+        ungroupBtn.addActionListener(e -> {
+            canvas.ungroupSelected();
+            updateUndoRedoButtons();
+        });
+        toolbar.add(ungroupBtn);
         
         toolbar.add(new JSeparator(SwingConstants.VERTICAL));
         
@@ -606,6 +936,6 @@ public class GraphicsEditorStep2 extends JFrame {
     }
     
     public static void main(String[] args) {
-        SwingUtilities.invokeLater(() -> new GraphicsEditorStep2().setVisible(true));
+        SwingUtilities.invokeLater(() -> new GraphicsEditorStep3().setVisible(true));
     }
 }
