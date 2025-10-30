@@ -1,9 +1,12 @@
 import java.awt.*;
 import java.awt.event.*;
+import java.io.*;
 import java.util.ArrayList;
+import java.util.Stack;
 import javax.swing.*;
+import javax.swing.filechooser.FileNameExtensionFilter;
 
-// ==================== BASE FIGURE CLASS ====================
+// ==================== FIGURE CLASSES ====================
 
 abstract class Figure {
     int left, top, width, height;
@@ -16,28 +19,24 @@ abstract class Figure {
         this.height = height;
     }
     
-    // Check if point is inside figure
     boolean contains(int x, int y) {
         return x >= left && x <= left + width && y >= top && y <= top + height;
     }
     
-    // Move figure by delta
     void move(int dx, int dy) {
         left += dx;
         top += dy;
     }
     
-    // Resize figure
     void resize(int newWidth, int newHeight) {
         width = newWidth;
         height = newHeight;
     }
     
-    // Draw figure (to be implemented by subclasses)
     abstract void draw(Graphics g);
+    abstract String toFileFormat(int indent);
+    abstract Figure clone();
 }
-
-// ==================== RECTANGLE FIGURE ====================
 
 class RectangleFigure extends Figure {
     RectangleFigure(int left, int top, int width, int height) {
@@ -45,41 +44,30 @@ class RectangleFigure extends Figure {
     }
     
     void draw(Graphics g) {
-        // Fill the rectangle
         g.setColor(Color.CYAN);
         g.fillRect(left, top, width, height);
-        
-        // Draw border (red if selected, black otherwise)
+        g.setColor(selected ? Color.RED : Color.BLACK);
+        g.drawRect(left, top, width, height);
         if (selected) {
-            g.setColor(Color.RED);
             Graphics2D g2 = (Graphics2D) g;
-            g2.setStroke(new BasicStroke(3));
+            g2.setStroke(new BasicStroke(2));
             g2.drawRect(left, top, width, height);
             g2.setStroke(new BasicStroke(1));
-            
-            // Draw resize handles
-            drawResizeHandles(g);
-        } else {
-            g.setColor(Color.BLACK);
-            g.drawRect(left, top, width, height);
         }
     }
     
-    private void drawResizeHandles(Graphics g) {
-        int handleSize = 8;
-        g.setColor(Color.RED);
-        // Top-left
-        g.fillRect(left - handleSize/2, top - handleSize/2, handleSize, handleSize);
-        // Top-right
-        g.fillRect(left + width - handleSize/2, top - handleSize/2, handleSize, handleSize);
-        // Bottom-left
-        g.fillRect(left - handleSize/2, top + height - handleSize/2, handleSize, handleSize);
-        // Bottom-right
-        g.fillRect(left + width - handleSize/2, top + height - handleSize/2, handleSize, handleSize);
+    String toFileFormat(int indent) {
+        return getIndent(indent) + "rectangle " + left + " " + top + " " + width + " " + height;
+    }
+    
+    Figure clone() {
+        return new RectangleFigure(left, top, width, height);
+    }
+    
+    private String getIndent(int level) {
+        return " ".repeat(level);
     }
 }
-
-// ==================== ELLIPSE FIGURE ====================
 
 class EllipseFigure extends Figure {
     EllipseFigure(int left, int top, int width, int height) {
@@ -87,225 +75,395 @@ class EllipseFigure extends Figure {
     }
     
     void draw(Graphics g) {
-        // Fill the ellipse
         g.setColor(Color.PINK);
         g.fillOval(left, top, width, height);
-        
-        // Draw border (red if selected, black otherwise)
+        g.setColor(selected ? Color.RED : Color.BLACK);
+        g.drawOval(left, top, width, height);
         if (selected) {
-            g.setColor(Color.RED);
             Graphics2D g2 = (Graphics2D) g;
-            g2.setStroke(new BasicStroke(3));
+            g2.setStroke(new BasicStroke(2));
             g2.drawOval(left, top, width, height);
             g2.setStroke(new BasicStroke(1));
-            
-            // Draw resize handles
-            drawResizeHandles(g);
-        } else {
-            g.setColor(Color.BLACK);
-            g.drawOval(left, top, width, height);
         }
     }
     
-    private void drawResizeHandles(Graphics g) {
-        int handleSize = 8;
-        g.setColor(Color.RED);
-        // Top-left
-        g.fillRect(left - handleSize/2, top - handleSize/2, handleSize, handleSize);
-        // Top-right
-        g.fillRect(left + width - handleSize/2, top - handleSize/2, handleSize, handleSize);
-        // Bottom-left
-        g.fillRect(left - handleSize/2, top + height - handleSize/2, handleSize, handleSize);
-        // Bottom-right
-        g.fillRect(left + width - handleSize/2, top + height - handleSize/2, handleSize, handleSize);
+    String toFileFormat(int indent) {
+        return getIndent(indent) + "ellipse " + left + " " + top + " " + width + " " + height;
+    }
+    
+    Figure clone() {
+        return new EllipseFigure(left, top, width, height);
+    }
+    
+    private String getIndent(int level) {
+        return " ".repeat(level);
     }
 }
 
-// ==================== DRAWING PANEL ====================
+// ==================== COMMAND PATTERN ====================
+
+interface Command {
+    void execute();
+    void undo();
+}
+
+class AddFigureCommand implements Command {
+    private ArrayList<Figure> figures;
+    private Figure figure;
+    
+    AddFigureCommand(ArrayList<Figure> figures, Figure figure) {
+        this.figures = figures;
+        this.figure = figure;
+    }
+    
+    public void execute() {
+        figures.add(figure);
+    }
+    
+    public void undo() {
+        figures.remove(figure);
+    }
+}
+
+class RemoveFigureCommand implements Command {
+    private ArrayList<Figure> figures;
+    private Figure figure;
+    private int index;
+    
+    RemoveFigureCommand(ArrayList<Figure> figures, Figure figure) {
+        this.figures = figures;
+        this.figure = figure;
+        this.index = figures.indexOf(figure);
+    }
+    
+    public void execute() {
+        index = figures.indexOf(figure);
+        figures.remove(figure);
+    }
+    
+    public void undo() {
+        figures.add(index, figure);
+    }
+}
+
+class MoveFigureCommand implements Command {
+    private Figure figure;
+    private int dx, dy;
+    
+    MoveFigureCommand(Figure figure, int dx, int dy) {
+        this.figure = figure;
+        this.dx = dx;
+        this.dy = dy;
+    }
+    
+    public void execute() {
+        figure.move(dx, dy);
+    }
+    
+    public void undo() {
+        figure.move(-dx, -dy);
+    }
+}
+
+class ResizeFigureCommand implements Command {
+    private Figure figure;
+    private int oldWidth, oldHeight;
+    private int newWidth, newHeight;
+    
+    ResizeFigureCommand(Figure figure, int newWidth, int newHeight) {
+        this.figure = figure;
+        this.oldWidth = figure.width;
+        this.oldHeight = figure.height;
+        this.newWidth = newWidth;
+        this.newHeight = newHeight;
+    }
+    
+    public void execute() {
+        figure.resize(newWidth, newHeight);
+    }
+    
+    public void undo() {
+        figure.resize(oldWidth, oldHeight);
+    }
+}
+
+class ClearCommand implements Command {
+    private ArrayList<Figure> figures;
+    private ArrayList<Figure> backup;
+    
+    ClearCommand(ArrayList<Figure> figures) {
+        this.figures = figures;
+        this.backup = new ArrayList<>();
+        for (Figure f : figures) {
+            backup.add(f.clone());
+        }
+    }
+    
+    public void execute() {
+        figures.clear();
+    }
+    
+    public void undo() {
+        figures.clear();
+        figures.addAll(backup);
+    }
+}
+
+class LoadFileCommand implements Command {
+    private ArrayList<Figure> figures;
+    private ArrayList<Figure> oldFigures;
+    private ArrayList<Figure> newFigures;
+    
+    LoadFileCommand(ArrayList<Figure> figures, ArrayList<Figure> newFigures) {
+        this.figures = figures;
+        this.newFigures = newFigures;
+        this.oldFigures = new ArrayList<>();
+        for (Figure f : figures) {
+            oldFigures.add(f.clone());
+        }
+    }
+    
+    public void execute() {
+        figures.clear();
+        figures.addAll(newFigures);
+    }
+    
+    public void undo() {
+        figures.clear();
+        figures.addAll(oldFigures);
+    }
+}
+
+// ==================== COMMAND MANAGER ====================
+
+class CommandManager {
+    private Stack<Command> undoStack = new Stack<>();
+    private Stack<Command> redoStack = new Stack<>();
+    
+    void executeCommand(Command command) {
+        command.execute();
+        undoStack.push(command);
+        redoStack.clear(); // Clear redo stack when new command is executed
+    }
+    
+    void undo() {
+        if (!undoStack.isEmpty()) {
+            Command command = undoStack.pop();
+            command.undo();
+            redoStack.push(command);
+        }
+    }
+    
+    void redo() {
+        if (!redoStack.isEmpty()) {
+            Command command = redoStack.pop();
+            command.execute();
+            undoStack.push(command);
+        }
+    }
+    
+    boolean canUndo() {
+        return !undoStack.isEmpty();
+    }
+    
+    boolean canRedo() {
+        return !redoStack.isEmpty();
+    }
+}
+
+// ==================== FILE I/O ====================
+
+class FileIO {
+    static void save(ArrayList<Figure> figures, File file) throws IOException {
+        try (PrintWriter writer = new PrintWriter(new FileWriter(file))) {
+            // Write as a group containing all figures
+            writer.println("group " + figures.size());
+            for (Figure f : figures) {
+                writer.println(f.toFileFormat(1));
+            }
+        }
+    }
+    
+    static ArrayList<Figure> load(File file) throws IOException {
+        ArrayList<Figure> figures = new ArrayList<>();
+        try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
+            String line = reader.readLine();
+            if (line != null && line.trim().startsWith("group")) {
+                String[] parts = line.trim().split("\\s+");
+                int count = Integer.parseInt(parts[1]);
+                for (int i = 0; i < count; i++) {
+                    line = reader.readLine();
+                    if (line != null) {
+                        Figure fig = parseFigure(line.trim());
+                        if (fig != null) {
+                            figures.add(fig);
+                        }
+                    }
+                }
+            }
+        }
+        return figures;
+    }
+    
+    private static Figure parseFigure(String line) {
+        String[] parts = line.split("\\s+");
+        if (parts.length < 5) return null;
+        
+        String type = parts[0];
+        int left = Integer.parseInt(parts[1]);
+        int top = Integer.parseInt(parts[2]);
+        int width = Integer.parseInt(parts[3]);
+        int height = Integer.parseInt(parts[4]);
+        
+        if (type.equals("rectangle")) {
+            return new RectangleFigure(left, top, width, height);
+        } else if (type.equals("ellipse")) {
+            return new EllipseFigure(left, top, width, height);
+        }
+        return null;
+    }
+}
+
+// ==================== CANVAS ====================
 
 class DrawingPanel extends JPanel {
     ArrayList<Figure> figures = new ArrayList<>();
+    CommandManager commandManager;
     
-    // Drawing state
     String mode = "rectangle"; // rectangle, ellipse, select, move, resize
-    Figure currentFigure = null;
-    Figure selectedFigure = null;
-    
-    // Mouse tracking
     int startX, startY;
-    int lastMouseX, lastMouseY;
+    Figure currentFigure;
+    Figure selectedFigure;
+    int moveStartX, moveStartY;
     
-    // Resize state
-    boolean isResizing = false;
-    
-    DrawingPanel() {
+    DrawingPanel(CommandManager commandManager) {
+        this.commandManager = commandManager;
         setBackground(Color.WHITE);
         
-        // Mouse listener for press and release
         addMouseListener(new MouseAdapter() {
             public void mousePressed(MouseEvent e) {
                 startX = e.getX();
                 startY = e.getY();
-                lastMouseX = startX;
-                lastMouseY = startY;
                 
-                handleMousePressed(e.getX(), e.getY());
+                if (mode.equals("rectangle") || mode.equals("ellipse")) {
+                    // Create new figure
+                    if (mode.equals("rectangle")) {
+                        currentFigure = new RectangleFigure(startX, startY, 1, 1);
+                    } else {
+                        currentFigure = new EllipseFigure(startX, startY, 1, 1);
+                    }
+                } else if (mode.equals("select")) {
+                    // Select figure
+                    selectFigureAt(e.getX(), e.getY());
+                } else if (mode.equals("move")) {
+                    // Find figure to move
+                    selectedFigure = findFigureAt(e.getX(), e.getY());
+                    moveStartX = e.getX();
+                    moveStartY = e.getY();
+                } else if (mode.equals("resize")) {
+                    // Find figure to resize
+                    selectedFigure = findFigureAt(e.getX(), e.getY());
+                }
             }
             
             public void mouseReleased(MouseEvent e) {
-                handleMouseReleased(e.getX(), e.getY());
+                if (currentFigure != null && (mode.equals("rectangle") || mode.equals("ellipse"))) {
+                    // Add figure via command
+                    if (currentFigure.width > 5 && currentFigure.height > 5) {
+                        commandManager.executeCommand(new AddFigureCommand(figures, currentFigure));
+                    }
+                    currentFigure = null;
+                    repaint();
+                } else if (mode.equals("move") && selectedFigure != null) {
+                    int dx = e.getX() - moveStartX;
+                    int dy = e.getY() - moveStartY;
+                    if (dx != 0 || dy != 0) {
+                        commandManager.executeCommand(new MoveFigureCommand(selectedFigure, dx, dy));
+                    }
+                    selectedFigure = null;
+                    repaint();
+                } else if (mode.equals("resize") && selectedFigure != null) {
+                    int newWidth = Math.abs(e.getX() - selectedFigure.left);
+                    int newHeight = Math.abs(e.getY() - selectedFigure.top);
+                    if (newWidth != selectedFigure.width || newHeight != selectedFigure.height) {
+                        commandManager.executeCommand(new ResizeFigureCommand(selectedFigure, newWidth, newHeight));
+                    }
+                    selectedFigure = null;
+                    repaint();
+                }
             }
         });
         
-        // Mouse motion listener for dragging
         addMouseMotionListener(new MouseMotionAdapter() {
             public void mouseDragged(MouseEvent e) {
-                handleMouseDragged(e.getX(), e.getY());
+                if (currentFigure != null && (mode.equals("rectangle") || mode.equals("ellipse"))) {
+                    int x = e.getX();
+                    int y = e.getY();
+                    currentFigure.left = Math.min(startX, x);
+                    currentFigure.top = Math.min(startY, y);
+                    currentFigure.width = Math.abs(x - startX);
+                    currentFigure.height = Math.abs(y - startY);
+                    repaint();
+                } else if (mode.equals("move") && selectedFigure != null) {
+                    int dx = e.getX() - moveStartX;
+                    int dy = e.getY() - moveStartY;
+                    selectedFigure.move(dx, dy);
+                    moveStartX = e.getX();
+                    moveStartY = e.getY();
+                    repaint();
+                } else if (mode.equals("resize") && selectedFigure != null) {
+                    int newWidth = Math.max(10, Math.abs(e.getX() - selectedFigure.left));
+                    int newHeight = Math.max(10, Math.abs(e.getY() - selectedFigure.top));
+                    selectedFigure.resize(newWidth, newHeight);
+                    repaint();
+                }
             }
         });
-    }
-    
-    void handleMousePressed(int x, int y) {
-        if (mode.equals("rectangle")) {
-            // Start drawing a rectangle
-            currentFigure = new RectangleFigure(x, y, 1, 1);
-            figures.add(currentFigure);
-            
-        } else if (mode.equals("ellipse")) {
-            // Start drawing an ellipse
-            currentFigure = new EllipseFigure(x, y, 1, 1);
-            figures.add(currentFigure);
-            
-        } else if (mode.equals("select")) {
-            // Deselect all figures first
-            for (Figure f : figures) {
-                f.selected = false;
-            }
-            
-            // Select the topmost figure at this position
-            for (int i = figures.size() - 1; i >= 0; i--) {
-                if (figures.get(i).contains(x, y)) {
-                    figures.get(i).selected = true;
-                    selectedFigure = figures.get(i);
-                    break;
-                }
-            }
-            repaint();
-            
-        } else if (mode.equals("move")) {
-            // Find figure to move
-            selectedFigure = null;
-            for (int i = figures.size() - 1; i >= 0; i--) {
-                if (figures.get(i).contains(x, y)) {
-                    selectedFigure = figures.get(i);
-                    break;
-                }
-            }
-            
-        } else if (mode.equals("resize")) {
-            // Find figure to resize
-            selectedFigure = null;
-            for (int i = figures.size() - 1; i >= 0; i--) {
-                if (figures.get(i).contains(x, y)) {
-                    selectedFigure = figures.get(i);
-                    isResizing = true;
-                    break;
-                }
-            }
-        }
-    }
-    
-    void handleMouseDragged(int x, int y) {
-        if (mode.equals("rectangle") || mode.equals("ellipse")) {
-            // Update the figure being drawn
-            if (currentFigure != null) {
-                currentFigure.left = Math.min(startX, x);
-                currentFigure.top = Math.min(startY, y);
-                currentFigure.width = Math.abs(x - startX);
-                currentFigure.height = Math.abs(y - startY);
-                repaint();
-            }
-            
-        } else if (mode.equals("move")) {
-            // Move the selected figure
-            if (selectedFigure != null) {
-                int dx = x - lastMouseX;
-                int dy = y - lastMouseY;
-                selectedFigure.move(dx, dy);
-                lastMouseX = x;
-                lastMouseY = y;
-                repaint();
-            }
-            
-        } else if (mode.equals("resize")) {
-            // Resize the selected figure
-            if (selectedFigure != null && isResizing) {
-                int newWidth = Math.max(10, Math.abs(x - selectedFigure.left));
-                int newHeight = Math.max(10, Math.abs(y - selectedFigure.top));
-                selectedFigure.resize(newWidth, newHeight);
-                repaint();
-            }
-        }
-    }
-    
-    void handleMouseReleased(int x, int y) {
-        if (mode.equals("rectangle") || mode.equals("ellipse")) {
-            // Finalize the drawn figure
-            if (currentFigure != null) {
-                // Remove figures that are too small
-                if (currentFigure.width < 5 || currentFigure.height < 5) {
-                    figures.remove(currentFigure);
-                }
-                currentFigure = null;
-                repaint();
-            }
-            
-        } else if (mode.equals("move")) {
-            // Finalize move
-            selectedFigure = null;
-            
-        } else if (mode.equals("resize")) {
-            // Finalize resize
-            selectedFigure = null;
-            isResizing = false;
-        }
     }
     
     void setMode(String mode) {
         this.mode = mode;
-        
-        // Deselect all figures when changing modes
+        // Deselect all when changing mode
         for (Figure f : figures) {
             f.selected = false;
         }
-        selectedFigure = null;
-        currentFigure = null;
         repaint();
     }
     
     void clear() {
-        figures.clear();
-        selectedFigure = null;
-        currentFigure = null;
+        commandManager.executeCommand(new ClearCommand(figures));
         repaint();
     }
     
-    void deleteSelected() {
-        // Remove all selected figures
-        figures.removeIf(f -> f.selected);
-        selectedFigure = null;
+    void selectFigureAt(int x, int y) {
+        // Deselect all first
+        for (Figure f : figures) {
+            f.selected = false;
+        }
+        // Select the top-most figure at position
+        for (int i = figures.size() - 1; i >= 0; i--) {
+            if (figures.get(i).contains(x, y)) {
+                figures.get(i).selected = true;
+                break;
+            }
+        }
         repaint();
+    }
+    
+    Figure findFigureAt(int x, int y) {
+        for (int i = figures.size() - 1; i >= 0; i--) {
+            if (figures.get(i).contains(x, y)) {
+                return figures.get(i);
+            }
+        }
+        return null;
     }
     
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
-        
-        // Draw all figures
         for (Figure f : figures) {
             f.draw(g);
         }
-        
-        // Draw the figure currently being created
         if (currentFigure != null) {
             currentFigure.draw(g);
         }
@@ -314,122 +472,121 @@ class DrawingPanel extends JPanel {
 
 // ==================== MAIN APPLICATION ====================
 
-public class GraphicsEditorStep1 extends JFrame {
+public class GraphicsEditorStep2 extends JFrame {
     DrawingPanel canvas;
+    CommandManager commandManager;
+    JButton undoBtn, redoBtn;
     
-    // UI components
-    JButton rectBtn, ellipseBtn, selectBtn, moveBtn, resizeBtn, clearBtn, deleteBtn;
-    JLabel statusLabel;
-    
-    GraphicsEditorStep1() {
-        setTitle("Graphics Editor - Step 1");
+    GraphicsEditorStep2() {
+        setTitle("Graphics Editor - Step 2 (Command Pattern + File I/O)");
         setSize(800, 600);
         setDefaultCloseOperation(EXIT_ON_CLOSE);
         
-        // Create canvas
-        canvas = new DrawingPanel();
+        commandManager = new CommandManager();
+        canvas = new DrawingPanel(commandManager);
         add(canvas, BorderLayout.CENTER);
         
         // Create toolbar
         JPanel toolbar = new JPanel();
-        toolbar.setLayout(new FlowLayout(FlowLayout.LEFT));
         
-        // Drawing buttons
-        rectBtn = new JButton("Rectangle");
-        rectBtn.addActionListener(e -> {
-            canvas.setMode("rectangle");
-            updateStatus("Drawing mode: Rectangle");
-            highlightButton(rectBtn);
-        });
+        JButton rectBtn = new JButton("Rectangle");
+        rectBtn.addActionListener(e -> canvas.setMode("rectangle"));
         toolbar.add(rectBtn);
         
-        ellipseBtn = new JButton("Ellipse");
-        ellipseBtn.addActionListener(e -> {
-            canvas.setMode("ellipse");
-            updateStatus("Drawing mode: Ellipse");
-            highlightButton(ellipseBtn);
-        });
+        JButton ellipseBtn = new JButton("Ellipse");
+        ellipseBtn.addActionListener(e -> canvas.setMode("ellipse"));
         toolbar.add(ellipseBtn);
         
-        toolbar.add(new JSeparator(SwingConstants.VERTICAL));
-        
-        // Selection and manipulation buttons
-        selectBtn = new JButton("Select");
-        selectBtn.addActionListener(e -> {
-            canvas.setMode("select");
-            updateStatus("Select mode: Click on a figure to select it");
-            highlightButton(selectBtn);
-        });
+        JButton selectBtn = new JButton("Select");
+        selectBtn.addActionListener(e -> canvas.setMode("select"));
         toolbar.add(selectBtn);
         
-        moveBtn = new JButton("Move");
-        moveBtn.addActionListener(e -> {
-            canvas.setMode("move");
-            updateStatus("Move mode: Drag a figure to move it");
-            highlightButton(moveBtn);
-        });
+        JButton moveBtn = new JButton("Move");
+        moveBtn.addActionListener(e -> canvas.setMode("move"));
         toolbar.add(moveBtn);
         
-        resizeBtn = new JButton("Resize");
-        resizeBtn.addActionListener(e -> {
-            canvas.setMode("resize");
-            updateStatus("Resize mode: Drag from top-left to resize");
-            highlightButton(resizeBtn);
-        });
+        JButton resizeBtn = new JButton("Resize");
+        resizeBtn.addActionListener(e -> canvas.setMode("resize"));
         toolbar.add(resizeBtn);
         
         toolbar.add(new JSeparator(SwingConstants.VERTICAL));
         
-        // Utility buttons
-        deleteBtn = new JButton("Delete Selected");
-        deleteBtn.addActionListener(e -> {
-            canvas.deleteSelected();
-            updateStatus("Selected figures deleted");
+        undoBtn = new JButton("Undo");
+        undoBtn.addActionListener(e -> {
+            commandManager.undo();
+            canvas.repaint();
+            updateUndoRedoButtons();
         });
-        toolbar.add(deleteBtn);
+        toolbar.add(undoBtn);
         
-        clearBtn = new JButton("Clear All");
-        clearBtn.addActionListener(e -> {
-            canvas.clear();
-            updateStatus("Canvas cleared");
+        redoBtn = new JButton("Redo");
+        redoBtn.addActionListener(e -> {
+            commandManager.redo();
+            canvas.repaint();
+            updateUndoRedoButtons();
         });
+        toolbar.add(redoBtn);
+        
+        toolbar.add(new JSeparator(SwingConstants.VERTICAL));
+        
+        JButton saveBtn = new JButton("Save");
+        saveBtn.addActionListener(e -> saveFile());
+        toolbar.add(saveBtn);
+        
+        JButton loadBtn = new JButton("Load");
+        loadBtn.addActionListener(e -> loadFile());
+        toolbar.add(loadBtn);
+        
+        JButton clearBtn = new JButton("Clear");
+        clearBtn.addActionListener(e -> canvas.clear());
         toolbar.add(clearBtn);
         
         add(toolbar, BorderLayout.NORTH);
         
-        // Create status bar
-        JPanel statusBar = new JPanel();
-        statusBar.setLayout(new BorderLayout());
-        statusBar.setBorder(BorderFactory.createEtchedBorder());
-        statusLabel = new JLabel("Ready - Select a drawing mode");
-        statusLabel.setBorder(BorderFactory.createEmptyBorder(2, 5, 2, 5));
-        statusBar.add(statusLabel, BorderLayout.WEST);
-        add(statusBar, BorderLayout.SOUTH);
-        
-        // Initial button highlight
-        highlightButton(rectBtn);
+        updateUndoRedoButtons();
     }
     
-    void updateStatus(String message) {
-        statusLabel.setText(message);
+    void updateUndoRedoButtons() {
+        undoBtn.setEnabled(commandManager.canUndo());
+        redoBtn.setEnabled(commandManager.canRedo());
     }
     
-    void highlightButton(JButton activeButton) {
-        // Reset all buttons
-        rectBtn.setBackground(null);
-        ellipseBtn.setBackground(null);
-        selectBtn.setBackground(null);
-        moveBtn.setBackground(null);
-        resizeBtn.setBackground(null);
-        
-        // Highlight active button
-        activeButton.setBackground(new Color(200, 230, 255));
+    void saveFile() {
+        JFileChooser fileChooser = new JFileChooser();
+        fileChooser.setFileFilter(new FileNameExtensionFilter("Text Files", "txt"));
+        if (fileChooser.showSaveDialog(this) == JFileChooser.APPROVE_OPTION) {
+            File file = fileChooser.getSelectedFile();
+            if (!file.getName().endsWith(".txt")) {
+                file = new File(file.getAbsolutePath() + ".txt");
+            }
+            try {
+                FileIO.save(canvas.figures, file);
+                JOptionPane.showMessageDialog(this, "File saved successfully!");
+            } catch (IOException ex) {
+                JOptionPane.showMessageDialog(this, "Error saving file: " + ex.getMessage(), 
+                    "Error", JOptionPane.ERROR_MESSAGE);
+            }
+        }
+    }
+    
+    void loadFile() {
+        JFileChooser fileChooser = new JFileChooser();
+        fileChooser.setFileFilter(new FileNameExtensionFilter("Text Files", "txt"));
+        if (fileChooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
+            try {
+                ArrayList<Figure> newFigures = FileIO.load(fileChooser.getSelectedFile());
+                commandManager.executeCommand(new LoadFileCommand(canvas.figures, newFigures));
+                canvas.repaint();
+                updateUndoRedoButtons();
+                JOptionPane.showMessageDialog(this, "File loaded successfully!");
+            } catch (IOException ex) {
+                JOptionPane.showMessageDialog(this, "Error loading file: " + ex.getMessage(), 
+                    "Error", JOptionPane.ERROR_MESSAGE);
+            }
+        }
     }
     
     public static void main(String[] args) {
-        SwingUtilities.invokeLater(() -> {
-            GraphicsEditorStep1 editor = new GraphicsEditorStep1();
-            editor.setVisible(true);
-        });
+        SwingUtilities.invokeLater(() -> new GraphicsEditorStep2().setVisible(true));
     }
 }
