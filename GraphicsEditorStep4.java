@@ -6,7 +6,172 @@ import java.util.Stack;
 import javax.swing.*;
 import javax.swing.filechooser.FileNameExtensionFilter;
 
-// ==================== FIGURE CLASSES (WITH COMPOSITE PATTERN) ====================
+// ==================== VISITOR PATTERN ====================
+
+/**
+ * FigureVisitor - Visitor pattern interface
+ * Allows operations to be performed on figures without modifying the figure classes
+ */
+interface FigureVisitor {
+    void visitRectangle(RectangleFigure rectangle);
+    void visitEllipse(EllipseFigure ellipse);
+    void visitGroup(FigureGroup group);
+}
+
+/**
+ * MoveVisitor - Moves figures by a given delta
+ */
+class MoveVisitor implements FigureVisitor {
+    private int dx, dy;
+    
+    MoveVisitor(int dx, int dy) {
+        this.dx = dx;
+        this.dy = dy;
+    }
+    
+    @Override
+    public void visitRectangle(RectangleFigure rectangle) {
+        rectangle.left += dx;
+        rectangle.top += dy;
+    }
+    
+    @Override
+    public void visitEllipse(EllipseFigure ellipse) {
+        ellipse.left += dx;
+        ellipse.top += dy;
+    }
+    
+    @Override
+    public void visitGroup(FigureGroup group) {
+        // Move all children
+        for (Figure child : group.getChildren()) {
+            child.accept(this);
+        }
+        group.updateBounds();
+    }
+}
+
+/**
+ * ResizeVisitor - Resizes figures to a new width and height
+ */
+class ResizeVisitor implements FigureVisitor {
+    private int newWidth, newHeight;
+    private Figure targetFigure;
+    
+    // For groups: store original bounds for proportional scaling
+    private int originalLeft, originalTop, originalWidth, originalHeight;
+    
+    ResizeVisitor(Figure target, int newWidth, int newHeight) {
+        this.targetFigure = target;
+        this.newWidth = newWidth;
+        this.newHeight = newHeight;
+        this.originalLeft = target.left;
+        this.originalTop = target.top;
+        this.originalWidth = target.width;
+        this.originalHeight = target.height;
+    }
+    
+    @Override
+    public void visitRectangle(RectangleFigure rectangle) {
+        rectangle.width = newWidth;
+        rectangle.height = newHeight;
+    }
+    
+    @Override
+    public void visitEllipse(EllipseFigure ellipse) {
+        ellipse.width = newWidth;
+        ellipse.height = newHeight;
+    }
+    
+    @Override
+    public void visitGroup(FigureGroup group) {
+        if (originalWidth == 0 || originalHeight == 0) return;
+        
+        double scaleX = (double) newWidth / originalWidth;
+        double scaleY = (double) newHeight / originalHeight;
+        
+        // Resize each child proportionally
+        for (Figure child : group.getChildren()) {
+            int relativeLeft = child.left - originalLeft;
+            int relativeTop = child.top - originalTop;
+            
+            int childNewLeft = originalLeft + (int) Math.round(relativeLeft * scaleX);
+            int childNewTop = originalTop + (int) Math.round(relativeTop * scaleY);
+            int childNewWidth = (int) Math.round(child.width * scaleX);
+            int childNewHeight = (int) Math.round(child.height * scaleY);
+            
+            child.left = childNewLeft;
+            child.top = childNewTop;
+            
+            // Recursively resize child
+            ResizeVisitor childResizer = new ResizeVisitor(child, childNewWidth, childNewHeight);
+            child.accept(childResizer);
+        }
+        
+        group.updateBounds();
+    }
+}
+
+/**
+ * FileWriterVisitor - Writes figures to file format
+ */
+class FileWriterVisitor implements FigureVisitor {
+    private StringBuilder output = new StringBuilder();
+    private int indentLevel;
+    
+    FileWriterVisitor(int indentLevel) {
+        this.indentLevel = indentLevel;
+    }
+    
+    public String getOutput() {
+        return output.toString();
+    }
+    
+    @Override
+    public void visitRectangle(RectangleFigure rectangle) {
+        output.append(getIndent())
+              .append("rectangle ")
+              .append(rectangle.left).append(" ")
+              .append(rectangle.top).append(" ")
+              .append(rectangle.width).append(" ")
+              .append(rectangle.height);
+    }
+    
+    @Override
+    public void visitEllipse(EllipseFigure ellipse) {
+        output.append(getIndent())
+              .append("ellipse ")
+              .append(ellipse.left).append(" ")
+              .append(ellipse.top).append(" ")
+              .append(ellipse.width).append(" ")
+              .append(ellipse.height);
+    }
+    
+    @Override
+    public void visitGroup(FigureGroup group) {
+        output.append(getIndent())
+              .append("group ")
+              .append(group.getChildCount())
+              .append("\n");
+        
+        for (Figure child : group.getChildren()) {
+            FileWriterVisitor childVisitor = new FileWriterVisitor(indentLevel + 1);
+            child.accept(childVisitor);
+            output.append(childVisitor.getOutput()).append("\n");
+        }
+        
+        // Remove last newline
+        if (output.length() > 0 && output.charAt(output.length() - 1) == '\n') {
+            output.setLength(output.length() - 1);
+        }
+    }
+    
+    private String getIndent() {
+        return " ".repeat(indentLevel);
+    }
+}
+
+// ==================== FIGURE CLASSES (WITH VISITOR SUPPORT) ====================
 
 abstract class Figure {
     int left, top, width, height;
@@ -23,24 +188,23 @@ abstract class Figure {
         return x >= left && x <= left + width && y >= top && y <= top + height;
     }
     
-    void move(int dx, int dy) {
-        left += dx;
-        top += dy;
-    }
-    
-    void resize(int newWidth, int newHeight) {
-        width = newWidth;
-        height = newHeight;
-    }
+    /**
+     * Accept a visitor - Visitor pattern
+     */
+    abstract void accept(FigureVisitor visitor);
     
     abstract void draw(Graphics g);
-    abstract String toFileFormat(int indent);
     public abstract Figure clone();
 }
 
 class RectangleFigure extends Figure {
     RectangleFigure(int left, int top, int width, int height) {
         super(left, top, width, height);
+    }
+    
+    @Override
+    void accept(FigureVisitor visitor) {
+        visitor.visitRectangle(this);
     }
     
     void draw(Graphics g) {
@@ -56,22 +220,19 @@ class RectangleFigure extends Figure {
         }
     }
     
-    String toFileFormat(int indent) {
-        return getIndent(indent) + "rectangle " + left + " " + top + " " + width + " " + height;
-    }
-    
     public Figure clone() {
         return new RectangleFigure(left, top, width, height);
-    }
-    
-    private String getIndent(int level) {
-        return " ".repeat(level);
     }
 }
 
 class EllipseFigure extends Figure {
     EllipseFigure(int left, int top, int width, int height) {
         super(left, top, width, height);
+    }
+    
+    @Override
+    void accept(FigureVisitor visitor) {
+        visitor.visitEllipse(this);
     }
     
     void draw(Graphics g) {
@@ -87,24 +248,15 @@ class EllipseFigure extends Figure {
         }
     }
     
-    String toFileFormat(int indent) {
-        return getIndent(indent) + "ellipse " + left + " " + top + " " + width + " " + height;
-    }
-    
     public Figure clone() {
         return new EllipseFigure(left, top, width, height);
     }
-    
-    private String getIndent(int level) {
-        return " ".repeat(level);
-    }
 }
 
-// ==================== GROUP (COMPOSITE PATTERN) ====================
+// ==================== GROUP (COMPOSITE PATTERN WITH VISITOR) ====================
 
 /**
- * FigureGroup - Composite pattern implementation
- * A group can contain figures and other groups (unlimited nesting)
+ * FigureGroup - Composite pattern with visitor support
  */
 class FigureGroup extends Figure {
     private ArrayList<Figure> children = new ArrayList<>();
@@ -112,6 +264,11 @@ class FigureGroup extends Figure {
     FigureGroup() {
         super(0, 0, 0, 0);
         updateBounds();
+    }
+    
+    @Override
+    void accept(FigureVisitor visitor) {
+        visitor.visitGroup(this);
     }
     
     void add(Figure figure) {
@@ -134,8 +291,9 @@ class FigureGroup extends Figure {
     
     /**
      * Update bounds to encompass all children
+     * Made public so visitors can call it
      */
-    private void updateBounds() {
+    public void updateBounds() {
         if (children.isEmpty()) {
             left = top = width = height = 0;
             return;
@@ -191,60 +349,6 @@ class FigureGroup extends Figure {
     }
     
     @Override
-    void move(int dx, int dy) {
-        // Move all children
-        for (Figure child : children) {
-            child.move(dx, dy);
-        }
-        updateBounds();
-    }
-    
-    @Override
-    void resize(int newWidth, int newHeight) {
-        if (width == 0 || height == 0) return;
-        
-        double scaleX = (double) newWidth / width;
-        double scaleY = (double) newHeight / height;
-        
-        int oldLeft = left;
-        int oldTop = top;
-        
-        // Resize each child proportionally
-        for (Figure child : children) {
-            int relativeLeft = child.left - oldLeft;
-            int relativeTop = child.top - oldTop;
-            
-            int newLeft = oldLeft + (int) Math.round(relativeLeft * scaleX);
-            int newTop = oldTop + (int) Math.round(relativeTop * scaleY);
-            int childNewWidth = (int) Math.round(child.width * scaleX);
-            int childNewHeight = (int) Math.round(child.height * scaleY);
-            
-            child.left = newLeft;
-            child.top = newTop;
-            child.resize(childNewWidth, childNewHeight);
-        }
-        
-        updateBounds();
-    }
-    
-    @Override
-    String toFileFormat(int indent) {
-        StringBuilder sb = new StringBuilder();
-        sb.append(getIndent(indent)).append("group ").append(children.size()).append("\n");
-        
-        for (Figure child : children) {
-            sb.append(child.toFileFormat(indent + 1)).append("\n");
-        }
-        
-        // Remove last newline
-        if (sb.length() > 0 && sb.charAt(sb.length() - 1) == '\n') {
-            sb.setLength(sb.length() - 1);
-        }
-        
-        return sb.toString();
-    }
-    
-    @Override
     public Figure clone() {
         FigureGroup clone = new FigureGroup();
         for (Figure child : children) {
@@ -252,13 +356,9 @@ class FigureGroup extends Figure {
         }
         return clone;
     }
-    
-    private String getIndent(int level) {
-        return " ".repeat(level);
-    }
 }
 
-// ==================== COMMAND PATTERN (EXTENDED FOR GROUPS) ====================
+// ==================== COMMAND PATTERN (REFACTORED TO USE VISITORS) ====================
 
 interface Command {
     void execute();
@@ -304,6 +404,9 @@ class RemoveFigureCommand implements Command {
     }
 }
 
+/**
+ * MoveFigureCommand - Now uses MoveVisitor
+ */
 class MoveFigureCommand implements Command {
     private Figure figure;
     private int dx, dy;
@@ -315,14 +418,19 @@ class MoveFigureCommand implements Command {
     }
     
     public void execute() {
-        figure.move(dx, dy);
+        MoveVisitor visitor = new MoveVisitor(dx, dy);
+        figure.accept(visitor);
     }
     
     public void undo() {
-        figure.move(-dx, -dy);
+        MoveVisitor visitor = new MoveVisitor(-dx, -dy);
+        figure.accept(visitor);
     }
 }
 
+/**
+ * ResizeFigureCommand - Now uses ResizeVisitor
+ */
 class ResizeFigureCommand implements Command {
     private Figure figure;
     private int oldWidth, oldHeight;
@@ -337,15 +445,16 @@ class ResizeFigureCommand implements Command {
     }
     
     public void execute() {
-        figure.resize(newWidth, newHeight);
+        ResizeVisitor visitor = new ResizeVisitor(figure, newWidth, newHeight);
+        figure.accept(visitor);
     }
     
     public void undo() {
-        figure.resize(oldWidth, oldHeight);
+        ResizeVisitor visitor = new ResizeVisitor(figure, oldWidth, oldHeight);
+        figure.accept(visitor);
     }
 }
 
-// NEW: Group Command
 class GroupCommand implements Command {
     private ArrayList<Figure> figures;
     private ArrayList<Figure> figuresToGroup;
@@ -396,7 +505,6 @@ class GroupCommand implements Command {
     }
 }
 
-// NEW: Ungroup Command
 class UngroupCommand implements Command {
     private ArrayList<Figure> figures;
     private FigureGroup group;
@@ -525,15 +633,20 @@ class CommandManager {
     }
 }
 
-// ==================== FILE I/O (EXTENDED FOR GROUPS) ====================
+// ==================== FILE I/O (REFACTORED TO USE VISITORS) ====================
 
 class FileIO {
+    /**
+     * Save figures to file using FileWriterVisitor
+     */
     static void save(ArrayList<Figure> figures, File file) throws IOException {
         try (PrintWriter writer = new PrintWriter(new FileWriter(file))) {
             // Write as a group containing all figures
             writer.println("group " + figures.size());
             for (Figure f : figures) {
-                writer.println(f.toFileFormat(1));
+                FileWriterVisitor visitor = new FileWriterVisitor(1);
+                f.accept(visitor);
+                writer.println(visitor.getOutput());
             }
         }
     }
@@ -703,7 +816,11 @@ class DrawingPanel extends JPanel {
                 } else if (mode.equals("resize") && selectedFigure != null) {
                     int newWidth = Math.max(10, Math.abs(e.getX() - selectedFigure.left));
                     int newHeight = Math.max(10, Math.abs(e.getY() - selectedFigure.top));
-                    selectedFigure.resize(newWidth, newHeight);
+                    
+                    // Use visitor to resize
+                    ResizeVisitor visitor = new ResizeVisitor(selectedFigure, newWidth, newHeight);
+                    selectedFigure.accept(visitor);
+                    
                     repaint();
                 }
             }
@@ -801,13 +918,13 @@ class DrawingPanel extends JPanel {
 
 // ==================== MAIN APPLICATION ====================
 
-public class GraphicsEditorStep3 extends JFrame {
+public class GraphicsEditorStep4 extends JFrame {
     DrawingPanel canvas;
     CommandManager commandManager;
     JButton undoBtn, redoBtn;
     
-    GraphicsEditorStep3() {
-        setTitle("Graphics Editor - Step 3 (Composite Pattern)");
+    GraphicsEditorStep4() {
+        setTitle("Graphics Editor - Step 4 (Visitor Pattern)");
         setSize(800, 600);
         setDefaultCloseOperation(EXIT_ON_CLOSE);
         
@@ -840,7 +957,6 @@ public class GraphicsEditorStep3 extends JFrame {
         
         toolbar.add(new JSeparator(SwingConstants.VERTICAL));
         
-        // NEW: Group/Ungroup buttons
         JButton groupBtn = new JButton("Group");
         groupBtn.addActionListener(e -> {
             canvas.groupSelected();
@@ -936,6 +1052,6 @@ public class GraphicsEditorStep3 extends JFrame {
     }
     
     public static void main(String[] args) {
-        SwingUtilities.invokeLater(() -> new GraphicsEditorStep3().setVisible(true));
+        SwingUtilities.invokeLater(() -> new GraphicsEditorStep4().setVisible(true));
     }
 }
