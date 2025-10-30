@@ -35,7 +35,7 @@ abstract class Figure {
     
     abstract void draw(Graphics g);
     abstract String toFileFormat(int indent);
-    abstract Figure clone();
+    public abstract Figure clone();
 }
 
 class RectangleFigure extends Figure {
@@ -60,7 +60,7 @@ class RectangleFigure extends Figure {
         return getIndent(indent) + "rectangle " + left + " " + top + " " + width + " " + height;
     }
     
-    Figure clone() {
+    public Figure clone() {
         return new RectangleFigure(left, top, width, height);
     }
     
@@ -91,7 +91,7 @@ class EllipseFigure extends Figure {
         return getIndent(indent) + "ellipse " + left + " " + top + " " + width + " " + height;
     }
     
-    Figure clone() {
+    public Figure clone() {
         return new EllipseFigure(left, top, width, height);
     }
     
