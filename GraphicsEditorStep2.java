@@ -243,7 +243,7 @@ class CommandManager {
     void executeCommand(Command command) {
         command.execute();
         undoStack.push(command);
-        redoStack.clear(); // Clear redo stack when new command is executed
+        redoStack.clear();
     }
     
     void undo() {
@@ -334,7 +334,11 @@ class DrawingPanel extends JPanel {
     int startX, startY;
     Figure currentFigure;
     Figure selectedFigure;
-    int moveStartX, moveStartY;
+    
+    // FIXED: Track original position for move/resize
+    int originalX, originalY;
+    int originalWidth, originalHeight;
+    int totalDx, totalDy;  // Track total movement for command
     
     DrawingPanel(CommandManager commandManager) {
         this.commandManager = commandManager;
@@ -358,11 +362,19 @@ class DrawingPanel extends JPanel {
                 } else if (mode.equals("move")) {
                     // Find figure to move
                     selectedFigure = findFigureAt(e.getX(), e.getY());
-                    moveStartX = e.getX();
-                    moveStartY = e.getY();
+                    if (selectedFigure != null) {
+                        originalX = e.getX();
+                        originalY = e.getY();
+                        totalDx = 0;
+                        totalDy = 0;
+                    }
                 } else if (mode.equals("resize")) {
                     // Find figure to resize
                     selectedFigure = findFigureAt(e.getX(), e.getY());
+                    if (selectedFigure != null) {
+                        originalWidth = selectedFigure.width;
+                        originalHeight = selectedFigure.height;
+                    }
                 }
             }
             
@@ -375,18 +387,14 @@ class DrawingPanel extends JPanel {
                     currentFigure = null;
                     repaint();
                 } else if (mode.equals("move") && selectedFigure != null) {
-                    int dx = e.getX() - moveStartX;
-                    int dy = e.getY() - moveStartY;
-                    if (dx != 0 || dy != 0) {
-                        commandManager.executeCommand(new MoveFigureCommand(selectedFigure, dx, dy));
+                    if (totalDx != 0 || totalDy != 0) {
+                        commandManager.executeCommand(new MoveFigureCommand(selectedFigure, totalDx, totalDy));
                     }
                     selectedFigure = null;
                     repaint();
                 } else if (mode.equals("resize") && selectedFigure != null) {
-                    int newWidth = Math.abs(e.getX() - selectedFigure.left);
-                    int newHeight = Math.abs(e.getY() - selectedFigure.top);
-                    if (newWidth != selectedFigure.width || newHeight != selectedFigure.height) {
-                        commandManager.executeCommand(new ResizeFigureCommand(selectedFigure, newWidth, newHeight));
+                    if (selectedFigure.width != originalWidth || selectedFigure.height != originalHeight) {
+                        commandManager.executeCommand(new ResizeFigureCommand(selectedFigure, selectedFigure.width, selectedFigure.height));
                     }
                     selectedFigure = null;
                     repaint();
@@ -405,11 +413,19 @@ class DrawingPanel extends JPanel {
                     currentFigure.height = Math.abs(y - startY);
                     repaint();
                 } else if (mode.equals("move") && selectedFigure != null) {
-                    int dx = e.getX() - moveStartX;
-                    int dy = e.getY() - moveStartY;
-                    selectedFigure.move(dx, dy);
-                    moveStartX = e.getX();
-                    moveStartY = e.getY();
+                    int currentX = e.getX();
+                    int currentY = e.getY();
+                    int dx = currentX - originalX;
+                    int dy = currentY - originalY;
+                    
+                    // Move figure to new position based on total delta
+                    selectedFigure.left = selectedFigure.left - totalDx + dx;
+                    selectedFigure.top = selectedFigure.top - totalDy + dy;
+                    
+                    // Update total delta
+                    totalDx = dx;
+                    totalDy = dy;
+                    
                     repaint();
                 } else if (mode.equals("resize") && selectedFigure != null) {
                     int newWidth = Math.max(10, Math.abs(e.getX() - selectedFigure.left));
@@ -538,7 +554,10 @@ public class GraphicsEditorStep2 extends JFrame {
         toolbar.add(loadBtn);
         
         JButton clearBtn = new JButton("Clear");
-        clearBtn.addActionListener(e -> canvas.clear());
+        clearBtn.addActionListener(e -> {
+            canvas.clear();
+            updateUndoRedoButtons();
+        });
         toolbar.add(clearBtn);
         
         add(toolbar, BorderLayout.NORTH);
