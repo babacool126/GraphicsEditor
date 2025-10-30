@@ -6,15 +6,98 @@ import java.util.Stack;
 import javax.swing.*;
 import javax.swing.filechooser.FileNameExtensionFilter;
 
+// ==================== STRATEGY PATTERN (SINGLETON) ====================
+
+/**
+ * DrawStrategy - Strategy pattern interface
+ * Defines the drawing behavior for different figure types
+ */
+interface DrawStrategy {
+    void draw(Graphics g, int left, int top, int width, int height, boolean selected);
+    String getName();
+}
+
+/**
+ * RectangleStrategy - Singleton strategy for drawing rectangles
+ */
+class RectangleStrategy implements DrawStrategy {
+    private static RectangleStrategy instance;
+    
+    private RectangleStrategy() {
+        // Private constructor for singleton
+    }
+    
+    public static RectangleStrategy getInstance() {
+        if (instance == null) {
+            instance = new RectangleStrategy();
+        }
+        return instance;
+    }
+    
+    @Override
+    public void draw(Graphics g, int left, int top, int width, int height, boolean selected) {
+        g.setColor(Color.CYAN);
+        g.fillRect(left, top, width, height);
+        g.setColor(selected ? Color.RED : Color.BLACK);
+        g.drawRect(left, top, width, height);
+        if (selected) {
+            Graphics2D g2 = (Graphics2D) g;
+            g2.setStroke(new BasicStroke(2));
+            g2.drawRect(left, top, width, height);
+            g2.setStroke(new BasicStroke(1));
+        }
+    }
+    
+    @Override
+    public String getName() {
+        return "rectangle";
+    }
+}
+
+/**
+ * EllipseStrategy - Singleton strategy for drawing ellipses
+ */
+class EllipseStrategy implements DrawStrategy {
+    private static EllipseStrategy instance;
+    
+    private EllipseStrategy() {
+        // Private constructor for singleton
+    }
+    
+    public static EllipseStrategy getInstance() {
+        if (instance == null) {
+            instance = new EllipseStrategy();
+        }
+        return instance;
+    }
+    
+    @Override
+    public void draw(Graphics g, int left, int top, int width, int height, boolean selected) {
+        g.setColor(Color.PINK);
+        g.fillOval(left, top, width, height);
+        g.setColor(selected ? Color.RED : Color.BLACK);
+        g.drawOval(left, top, width, height);
+        if (selected) {
+            Graphics2D g2 = (Graphics2D) g;
+            g2.setStroke(new BasicStroke(2));
+            g2.drawOval(left, top, width, height);
+            g2.setStroke(new BasicStroke(1));
+        }
+    }
+    
+    @Override
+    public String getName() {
+        return "ellipse";
+    }
+}
+
 // ==================== VISITOR PATTERN ====================
 
 /**
  * FigureVisitor - Visitor pattern interface
- * Allows operations to be performed on figures without modifying the figure classes
  */
 interface FigureVisitor {
-    void visitRectangle(RectangleFigure rectangle);
-    void visitEllipse(EllipseFigure ellipse);
+    void visitBaseFigure(BaseFigure figure);
     void visitGroup(FigureGroup group);
 }
 
@@ -30,15 +113,9 @@ class MoveVisitor implements FigureVisitor {
     }
     
     @Override
-    public void visitRectangle(RectangleFigure rectangle) {
-        rectangle.left += dx;
-        rectangle.top += dy;
-    }
-    
-    @Override
-    public void visitEllipse(EllipseFigure ellipse) {
-        ellipse.left += dx;
-        ellipse.top += dy;
+    public void visitBaseFigure(BaseFigure figure) {
+        figure.left += dx;
+        figure.top += dy;
     }
     
     @Override
@@ -72,15 +149,9 @@ class ResizeVisitor implements FigureVisitor {
     }
     
     @Override
-    public void visitRectangle(RectangleFigure rectangle) {
-        rectangle.width = newWidth;
-        rectangle.height = newHeight;
-    }
-    
-    @Override
-    public void visitEllipse(EllipseFigure ellipse) {
-        ellipse.width = newWidth;
-        ellipse.height = newHeight;
+    public void visitBaseFigure(BaseFigure figure) {
+        figure.width = newWidth;
+        figure.height = newHeight;
     }
     
     @Override
@@ -128,23 +199,13 @@ class FileWriterVisitor implements FigureVisitor {
     }
     
     @Override
-    public void visitRectangle(RectangleFigure rectangle) {
+    public void visitBaseFigure(BaseFigure figure) {
         output.append(getIndent())
-              .append("rectangle ")
-              .append(rectangle.left).append(" ")
-              .append(rectangle.top).append(" ")
-              .append(rectangle.width).append(" ")
-              .append(rectangle.height);
-    }
-    
-    @Override
-    public void visitEllipse(EllipseFigure ellipse) {
-        output.append(getIndent())
-              .append("ellipse ")
-              .append(ellipse.left).append(" ")
-              .append(ellipse.top).append(" ")
-              .append(ellipse.width).append(" ")
-              .append(ellipse.height);
+              .append(figure.getStrategy().getName()).append(" ")
+              .append(figure.left).append(" ")
+              .append(figure.top).append(" ")
+              .append(figure.width).append(" ")
+              .append(figure.height);
     }
     
     @Override
@@ -171,8 +232,11 @@ class FileWriterVisitor implements FigureVisitor {
     }
 }
 
-// ==================== FIGURE CLASSES (WITH VISITOR SUPPORT) ====================
+// ==================== FIGURE CLASSES ====================
 
+/**
+ * Figure - Abstract base class for all figures
+ */
 abstract class Figure {
     int left, top, width, height;
     boolean selected = false;
@@ -188,72 +252,44 @@ abstract class Figure {
         return x >= left && x <= left + width && y >= top && y <= top + height;
     }
     
-    /**
-     * Accept a visitor - Visitor pattern
-     */
     abstract void accept(FigureVisitor visitor);
-    
     abstract void draw(Graphics g);
     public abstract Figure clone();
 }
 
-class RectangleFigure extends Figure {
-    RectangleFigure(int left, int top, int width, int height) {
+/**
+ * BaseFigure - Unified figure class using Strategy pattern
+ * Replaces separate RectangleFigure and EllipseFigure classes
+ */
+class BaseFigure extends Figure {
+    private DrawStrategy strategy;
+    
+    BaseFigure(int left, int top, int width, int height, DrawStrategy strategy) {
         super(left, top, width, height);
+        this.strategy = strategy;
+    }
+    
+    public DrawStrategy getStrategy() {
+        return strategy;
     }
     
     @Override
     void accept(FigureVisitor visitor) {
-        visitor.visitRectangle(this);
-    }
-    
-    void draw(Graphics g) {
-        g.setColor(Color.CYAN);
-        g.fillRect(left, top, width, height);
-        g.setColor(selected ? Color.RED : Color.BLACK);
-        g.drawRect(left, top, width, height);
-        if (selected) {
-            Graphics2D g2 = (Graphics2D) g;
-            g2.setStroke(new BasicStroke(2));
-            g2.drawRect(left, top, width, height);
-            g2.setStroke(new BasicStroke(1));
-        }
-    }
-    
-    public Figure clone() {
-        return new RectangleFigure(left, top, width, height);
-    }
-}
-
-class EllipseFigure extends Figure {
-    EllipseFigure(int left, int top, int width, int height) {
-        super(left, top, width, height);
+        visitor.visitBaseFigure(this);
     }
     
     @Override
-    void accept(FigureVisitor visitor) {
-        visitor.visitEllipse(this);
-    }
-    
     void draw(Graphics g) {
-        g.setColor(Color.PINK);
-        g.fillOval(left, top, width, height);
-        g.setColor(selected ? Color.RED : Color.BLACK);
-        g.drawOval(left, top, width, height);
-        if (selected) {
-            Graphics2D g2 = (Graphics2D) g;
-            g2.setStroke(new BasicStroke(2));
-            g2.drawOval(left, top, width, height);
-            g2.setStroke(new BasicStroke(1));
-        }
+        strategy.draw(g, left, top, width, height, selected);
     }
     
+    @Override
     public Figure clone() {
-        return new EllipseFigure(left, top, width, height);
+        return new BaseFigure(left, top, width, height, strategy);
     }
 }
 
-// ==================== GROUP (COMPOSITE PATTERN WITH VISITOR) ====================
+// ==================== GROUP (COMPOSITE PATTERN) ====================
 
 /**
  * FigureGroup - Composite pattern with visitor support
@@ -291,7 +327,6 @@ class FigureGroup extends Figure {
     
     /**
      * Update bounds to encompass all children
-     * Made public so visitors can call it
      */
     public void updateBounds() {
         if (children.isEmpty()) {
@@ -358,7 +393,7 @@ class FigureGroup extends Figure {
     }
 }
 
-// ==================== COMMAND PATTERN (REFACTORED TO USE VISITORS) ====================
+// ==================== COMMAND PATTERN ====================
 
 interface Command {
     void execute();
@@ -404,9 +439,6 @@ class RemoveFigureCommand implements Command {
     }
 }
 
-/**
- * MoveFigureCommand - Now uses MoveVisitor
- */
 class MoveFigureCommand implements Command {
     private Figure figure;
     private int dx, dy;
@@ -428,9 +460,6 @@ class MoveFigureCommand implements Command {
     }
 }
 
-/**
- * ResizeFigureCommand - Now uses ResizeVisitor
- */
 class ResizeFigureCommand implements Command {
     private Figure figure;
     private int oldWidth, oldHeight;
@@ -633,7 +662,7 @@ class CommandManager {
     }
 }
 
-// ==================== FILE I/O (REFACTORED TO USE VISITORS) ====================
+// ==================== FILE I/O ====================
 
 class FileIO {
     /**
@@ -697,10 +726,15 @@ class FileIO {
             int width = Integer.parseInt(parts[3]);
             int height = Integer.parseInt(parts[4]);
             
+            DrawStrategy strategy = null;
             if (type.equals("rectangle")) {
-                return new RectangleFigure(left, top, width, height);
+                strategy = RectangleStrategy.getInstance();
             } else if (type.equals("ellipse")) {
-                return new EllipseFigure(left, top, width, height);
+                strategy = EllipseStrategy.getInstance();
+            }
+            
+            if (strategy != null) {
+                return new BaseFigure(left, top, width, height, strategy);
             }
         }
         return null;
@@ -741,11 +775,10 @@ class DrawingPanel extends JPanel {
                 startY = e.getY();
                 
                 if (mode.equals("rectangle") || mode.equals("ellipse")) {
-                    if (mode.equals("rectangle")) {
-                        currentFigure = new RectangleFigure(startX, startY, 1, 1);
-                    } else {
-                        currentFigure = new EllipseFigure(startX, startY, 1, 1);
-                    }
+                    DrawStrategy strategy = mode.equals("rectangle") 
+                        ? RectangleStrategy.getInstance() 
+                        : EllipseStrategy.getInstance();
+                    currentFigure = new BaseFigure(startX, startY, 1, 1, strategy);
                 } else if (mode.equals("select")) {
                     // Select figure - support Ctrl+Click for multi-select
                     boolean addToSelection = e.isControlDown();
@@ -918,13 +951,13 @@ class DrawingPanel extends JPanel {
 
 // ==================== MAIN APPLICATION ====================
 
-public class GraphicsEditorStep4 extends JFrame {
+public class GraphicsEditorStep5 extends JFrame {
     DrawingPanel canvas;
     CommandManager commandManager;
     JButton undoBtn, redoBtn;
     
-    GraphicsEditorStep4() {
-        setTitle("Graphics Editor - Step 4 (Visitor Pattern)");
+    GraphicsEditorStep5() {
+        setTitle("Graphics Editor - Step 5 (Strategy + Singleton Pattern)");
         setSize(800, 600);
         setDefaultCloseOperation(EXIT_ON_CLOSE);
         
@@ -1052,6 +1085,6 @@ public class GraphicsEditorStep4 extends JFrame {
     }
     
     public static void main(String[] args) {
-        SwingUtilities.invokeLater(() -> new GraphicsEditorStep4().setVisible(true));
+        SwingUtilities.invokeLater(() -> new GraphicsEditorStep5().setVisible(true));
     }
 }
