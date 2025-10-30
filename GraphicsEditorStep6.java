@@ -99,6 +99,7 @@ class EllipseStrategy implements DrawStrategy {
 interface FigureVisitor {
     void visitBaseFigure(BaseFigure figure);
     void visitGroup(FigureGroup group);
+    void visitOrnament(OrnamentDecorator ornament);
 }
 
 /**
@@ -125,6 +126,14 @@ class MoveVisitor implements FigureVisitor {
             child.accept(this);
         }
         group.updateBounds();
+    }
+    
+    @Override
+    public void visitOrnament(OrnamentDecorator ornament) {
+        // Move the decorated figure
+        ornament.getDecoratedFigure().accept(this);
+        // Update ornament bounds
+        ornament.updateBounds();
     }
 }
 
@@ -181,6 +190,15 @@ class ResizeVisitor implements FigureVisitor {
         
         group.updateBounds();
     }
+    
+    @Override
+    public void visitOrnament(OrnamentDecorator ornament) {
+        // Resize the decorated figure
+        ResizeVisitor decoratedResizer = new ResizeVisitor(ornament.getDecoratedFigure(), newWidth, newHeight);
+        ornament.getDecoratedFigure().accept(decoratedResizer);
+        // Update ornament bounds
+        ornament.updateBounds();
+    }
 }
 
 /**
@@ -227,6 +245,20 @@ class FileWriterVisitor implements FigureVisitor {
         }
     }
     
+    @Override
+    public void visitOrnament(OrnamentDecorator ornament) {
+        output.append(getIndent())
+              .append("ornament ")
+              .append(ornament.getPosition()).append(" ")
+              .append("\"").append(ornament.getText()).append("\"")
+              .append("\n");
+        
+        // Write the decorated figure
+        FileWriterVisitor decoratedVisitor = new FileWriterVisitor(indentLevel);
+        ornament.getDecoratedFigure().accept(decoratedVisitor);
+        output.append(decoratedVisitor.getOutput());
+    }
+    
     private String getIndent() {
         return " ".repeat(indentLevel);
     }
@@ -236,6 +268,7 @@ class FileWriterVisitor implements FigureVisitor {
 
 /**
  * Figure - Abstract base class for all figures
+ * Component in the Decorator pattern
  */
 abstract class Figure {
     int left, top, width, height;
@@ -259,7 +292,7 @@ abstract class Figure {
 
 /**
  * BaseFigure - Unified figure class using Strategy pattern
- * Replaces separate RectangleFigure and EllipseFigure classes
+ * ConcreteComponent in the Decorator pattern
  */
 class BaseFigure extends Figure {
     private DrawStrategy strategy;
@@ -286,6 +319,144 @@ class BaseFigure extends Figure {
     @Override
     public Figure clone() {
         return new BaseFigure(left, top, width, height, strategy);
+    }
+}
+
+// ==================== DECORATOR PATTERN ====================
+
+/**
+ * OrnamentDecorator - Decorator for adding captions/ornaments to figures
+ * Implements the Decorator pattern
+ */
+class OrnamentDecorator extends Figure {
+    private Figure decoratedFigure;
+    private String text;
+    private String position; // "top", "bottom", "left", "right"
+    
+    private static final int TEXT_MARGIN = 5;
+    private static final int TEXT_HEIGHT = 15;
+    
+    OrnamentDecorator(Figure decoratedFigure, String text, String position) {
+        super(0, 0, 0, 0);
+        this.decoratedFigure = decoratedFigure;
+        this.text = text;
+        this.position = position;
+        updateBounds();
+    }
+    
+    public Figure getDecoratedFigure() {
+        return decoratedFigure;
+    }
+    
+    public String getText() {
+        return text;
+    }
+    
+    public String getPosition() {
+        return position;
+    }
+    
+    /**
+     * Update bounds to include both the decorated figure and the ornament
+     */
+    public void updateBounds() {
+        // Start with the decorated figure's bounds
+        int figLeft = decoratedFigure.left;
+        int figTop = decoratedFigure.top;
+        int figWidth = decoratedFigure.width;
+        int figHeight = decoratedFigure.height;
+        
+        // Calculate text width (approximate)
+        int textWidth = text.length() * 7; // Rough estimate
+        
+        // Adjust bounds based on ornament position
+        switch (position) {
+            case "top":
+                left = Math.min(figLeft, figLeft + figWidth / 2 - textWidth / 2);
+                top = figTop - TEXT_HEIGHT - TEXT_MARGIN;
+                width = Math.max(figWidth, textWidth);
+                height = figHeight + TEXT_HEIGHT + TEXT_MARGIN;
+                break;
+            case "bottom":
+                left = Math.min(figLeft, figLeft + figWidth / 2 - textWidth / 2);
+                top = figTop;
+                width = Math.max(figWidth, textWidth);
+                height = figHeight + TEXT_HEIGHT + TEXT_MARGIN;
+                break;
+            case "left":
+                left = figLeft - textWidth - TEXT_MARGIN;
+                top = figTop;
+                width = figWidth + textWidth + TEXT_MARGIN;
+                height = Math.max(figHeight, TEXT_HEIGHT);
+                break;
+            case "right":
+                left = figLeft;
+                top = figTop;
+                width = figWidth + textWidth + TEXT_MARGIN;
+                height = Math.max(figHeight, TEXT_HEIGHT);
+                break;
+            default:
+                left = figLeft;
+                top = figTop;
+                width = figWidth;
+                height = figHeight;
+        }
+    }
+    
+    @Override
+    void accept(FigureVisitor visitor) {
+        visitor.visitOrnament(this);
+    }
+    
+    @Override
+    void draw(Graphics g) {
+        // Draw the decorated figure
+        decoratedFigure.draw(g);
+        
+        // Draw the ornament text
+        g.setColor(Color.BLACK);
+        FontMetrics fm = g.getFontMetrics();
+        int textWidth = fm.stringWidth(text);
+        int textHeight = fm.getHeight();
+        
+        int textX = 0, textY = 0;
+        
+        switch (position) {
+            case "top":
+                textX = decoratedFigure.left + decoratedFigure.width / 2 - textWidth / 2;
+                textY = decoratedFigure.top - TEXT_MARGIN;
+                break;
+            case "bottom":
+                textX = decoratedFigure.left + decoratedFigure.width / 2 - textWidth / 2;
+                textY = decoratedFigure.top + decoratedFigure.height + textHeight;
+                break;
+            case "left":
+                textX = decoratedFigure.left - textWidth - TEXT_MARGIN;
+                textY = decoratedFigure.top + decoratedFigure.height / 2 + textHeight / 3;
+                break;
+            case "right":
+                textX = decoratedFigure.left + decoratedFigure.width + TEXT_MARGIN;
+                textY = decoratedFigure.top + decoratedFigure.height / 2 + textHeight / 3;
+                break;
+        }
+        
+        g.drawString(text, textX, textY);
+        
+        // If this ornament is selected, show selection on the decorated figure
+        if (selected) {
+            decoratedFigure.selected = true;
+        }
+    }
+    
+    @Override
+    boolean contains(int x, int y) {
+        // Check if point is in the decorated figure
+        return decoratedFigure.contains(x, y);
+    }
+    
+    @Override
+    public Figure clone() {
+        return new OrnamentDecorator(decoratedFigure.clone(), text, position);
     }
 }
 
@@ -578,6 +749,33 @@ class UngroupCommand implements Command {
     }
 }
 
+class AddOrnamentCommand implements Command {
+    private ArrayList<Figure> figures;
+    private Figure originalFigure;
+    private OrnamentDecorator decoratedFigure;
+    private int index;
+    
+    AddOrnamentCommand(ArrayList<Figure> figures, Figure figure, String text, String position) {
+        this.figures = figures;
+        this.originalFigure = figure;
+        this.decoratedFigure = new OrnamentDecorator(figure, text, position);
+        this.index = figures.indexOf(figure);
+    }
+    
+    public void execute() {
+        index = figures.indexOf(originalFigure);
+        if (index >= 0) {
+            figures.set(index, decoratedFigure);
+        }
+    }
+    
+    public void undo() {
+        if (index >= 0 && index < figures.size()) {
+            figures.set(index, originalFigure);
+        }
+    }
+}
+
 class ClearCommand implements Command {
     private ArrayList<Figure> figures;
     private ArrayList<Figure> backup;
@@ -715,10 +913,37 @@ class FileIO {
     }
     
     private static Figure parseFigure(BufferedReader reader, String line, int indent) throws IOException {
-        String[] parts = line.split("\\s+");
+        String[] parts = line.split("\\s+", 4); // Split into max 4 parts for ornament
         
-        if (parts[0].equals("group")) {
+        if (parts[0].equals("ornament")) {
+            // Parse ornament: ornament position "text"
+            String position = parts[1];
+            
+            // Extract text between quotes
+            String remaining = parts.length > 2 ? line.substring(line.indexOf(parts[1]) + parts[1].length()).trim() : "";
+            int firstQuote = remaining.indexOf('"');
+            int lastQuote = remaining.lastIndexOf('"');
+            String text = "";
+            if (firstQuote >= 0 && lastQuote > firstQuote) {
+                text = remaining.substring(firstQuote + 1, lastQuote);
+            }
+            
+            // Read the next line for the decorated figure
+            String nextLine = reader.readLine();
+            if (nextLine != null) {
+                int nextIndent = countIndent(nextLine);
+                String nextTrimmed = nextLine.trim();
+                Figure decoratedFigure = parseFigure(reader, nextTrimmed, nextIndent);
+                
+                if (decoratedFigure != null) {
+                    return new OrnamentDecorator(decoratedFigure, text, position);
+                }
+            }
+            return null;
+            
+        } else if (parts[0].equals("group")) {
             return parseGroup(reader, line, indent);
+            
         } else if (parts.length >= 5) {
             String type = parts[0];
             int left = Integer.parseInt(parts[1]);
@@ -895,6 +1120,39 @@ class DrawingPanel extends JPanel {
         }
     }
     
+    void addOrnamentToSelected() {
+        ArrayList<Figure> selected = getSelectedFigures();
+        if (selected.size() != 1) {
+            JOptionPane.showMessageDialog(this, "Select exactly one figure to add ornament", 
+                "Add Ornament", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        
+        // Show dialog to get ornament details
+        JPanel panel = new JPanel(new GridLayout(2, 2, 5, 5));
+        JTextField textField = new JTextField(10);
+        String[] positions = {"top", "bottom", "left", "right"};
+        JComboBox<String> positionCombo = new JComboBox<>(positions);
+        
+        panel.add(new JLabel("Text:"));
+        panel.add(textField);
+        panel.add(new JLabel("Position:"));
+        panel.add(positionCombo);
+        
+        int result = JOptionPane.showConfirmDialog(this, panel, "Add Ornament", 
+            JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        
+        if (result == JOptionPane.OK_OPTION) {
+            String text = textField.getText();
+            String position = (String) positionCombo.getSelectedItem();
+            
+            if (!text.isEmpty()) {
+                commandManager.executeCommand(new AddOrnamentCommand(figures, selected.get(0), text, position));
+                repaint();
+            }
+        }
+    }
+    
     ArrayList<Figure> getSelectedFigures() {
         ArrayList<Figure> selected = new ArrayList<>();
         for (Figure f : figures) {
@@ -951,13 +1209,13 @@ class DrawingPanel extends JPanel {
 
 // ==================== MAIN APPLICATION ====================
 
-public class GraphicsEditorStep5 extends JFrame {
+public class GraphicsEditorStep6 extends JFrame {
     DrawingPanel canvas;
     CommandManager commandManager;
     JButton undoBtn, redoBtn;
     
-    GraphicsEditorStep5() {
-        setTitle("Graphics Editor - Step 5 (Strategy + Singleton Pattern)");
+    GraphicsEditorStep6() {
+        setTitle("Graphics Editor - Step 6 (Decorator Pattern)");
         setSize(800, 600);
         setDefaultCloseOperation(EXIT_ON_CLOSE);
         
@@ -1003,6 +1261,16 @@ public class GraphicsEditorStep5 extends JFrame {
             updateUndoRedoButtons();
         });
         toolbar.add(ungroupBtn);
+        
+        toolbar.add(new JSeparator(SwingConstants.VERTICAL));
+        
+        // NEW: Add Ornament button
+        JButton ornamentBtn = new JButton("Add Ornament");
+        ornamentBtn.addActionListener(e -> {
+            canvas.addOrnamentToSelected();
+            updateUndoRedoButtons();
+        });
+        toolbar.add(ornamentBtn);
         
         toolbar.add(new JSeparator(SwingConstants.VERTICAL));
         
@@ -1085,6 +1353,6 @@ public class GraphicsEditorStep5 extends JFrame {
     }
     
     public static void main(String[] args) {
-        SwingUtilities.invokeLater(() -> new GraphicsEditorStep5().setVisible(true));
+        SwingUtilities.invokeLater(() -> new GraphicsEditorStep6().setVisible(true));
     }
 }
