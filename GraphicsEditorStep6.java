@@ -913,57 +913,60 @@ class FileIO {
     }
     
     private static Figure parseFigure(BufferedReader reader, String line, int indent) throws IOException {
-        String[] parts = line.split("\\s+", 4); // Split into max 4 parts for ornament
+    // Check if it's an ornament first (before splitting)
+    if (line.trim().startsWith("ornament")) {
+        String[] parts = line.split("\\s+", 4); // Only limit split for ornaments
+        String position = parts[1];
         
-        if (parts[0].equals("ornament")) {
-            // Parse ornament: ornament position "text"
-            String position = parts[1];
+        // Extract text between quotes
+        String remaining = parts.length > 2 ? line.substring(line.indexOf(parts[1]) + parts[1].length()).trim() : "";
+        int firstQuote = remaining.indexOf('"');
+        int lastQuote = remaining.lastIndexOf('"');
+        String text = "";
+        if (firstQuote >= 0 && lastQuote > firstQuote) {
+            text = remaining.substring(firstQuote + 1, lastQuote);
+        }
+        
+        // Read the next line for the decorated figure
+        String nextLine = reader.readLine();
+        if (nextLine != null) {
+            int nextIndent = countIndent(nextLine);
+            String nextTrimmed = nextLine.trim();
+            Figure decoratedFigure = parseFigure(reader, nextTrimmed, nextIndent);
             
-            // Extract text between quotes
-            String remaining = parts.length > 2 ? line.substring(line.indexOf(parts[1]) + parts[1].length()).trim() : "";
-            int firstQuote = remaining.indexOf('"');
-            int lastQuote = remaining.lastIndexOf('"');
-            String text = "";
-            if (firstQuote >= 0 && lastQuote > firstQuote) {
-                text = remaining.substring(firstQuote + 1, lastQuote);
-            }
-            
-            // Read the next line for the decorated figure
-            String nextLine = reader.readLine();
-            if (nextLine != null) {
-                int nextIndent = countIndent(nextLine);
-                String nextTrimmed = nextLine.trim();
-                Figure decoratedFigure = parseFigure(reader, nextTrimmed, nextIndent);
-                
-                if (decoratedFigure != null) {
-                    return new OrnamentDecorator(decoratedFigure, text, position);
-                }
-            }
-            return null;
-            
-        } else if (parts[0].equals("group")) {
-            return parseGroup(reader, line, indent);
-            
-        } else if (parts.length >= 5) {
-            String type = parts[0];
-            int left = Integer.parseInt(parts[1]);
-            int top = Integer.parseInt(parts[2]);
-            int width = Integer.parseInt(parts[3]);
-            int height = Integer.parseInt(parts[4]);
-            
-            DrawStrategy strategy = null;
-            if (type.equals("rectangle")) {
-                strategy = RectangleStrategy.getInstance();
-            } else if (type.equals("ellipse")) {
-                strategy = EllipseStrategy.getInstance();
-            }
-            
-            if (strategy != null) {
-                return new BaseFigure(left, top, width, height, strategy);
+            if (decoratedFigure != null) {
+                return new OrnamentDecorator(decoratedFigure, text, position);
             }
         }
         return null;
     }
+    
+    // For groups, rectangles, and ellipses - split WITHOUT limit
+    String[] parts = line.split("\\s+");
+    
+    if (parts[0].equals("group")) {
+        return parseGroup(reader, line, indent);
+        
+    } else if (parts.length >= 5) {
+        String type = parts[0];
+        int left = Integer.parseInt(parts[1]);
+        int top = Integer.parseInt(parts[2]);
+        int width = Integer.parseInt(parts[3]);
+        int height = Integer.parseInt(parts[4]);
+        
+        DrawStrategy strategy = null;
+        if (type.equals("rectangle")) {
+            strategy = RectangleStrategy.getInstance();
+        } else if (type.equals("ellipse")) {
+            strategy = EllipseStrategy.getInstance();
+        }
+        
+        if (strategy != null) {
+            return new BaseFigure(left, top, width, height, strategy);
+        }
+    }
+    return null;
+}
     
     private static int countIndent(String line) {
         int count = 0;
